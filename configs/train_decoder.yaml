@@ -1,0 +1,12 @@
+model: 
+  object_embedding_dim: 512
+  sam_path: checkpoints/sam/sam_vit_h_4b8939.pth
+
+train:
+  lr: 1e-3
+  optimizer: adam
+  batch_size: 512
+  loss_fn: mse
+  steps: 100000
+  image_size: 1024
+  save_path: checkpoints/box_decoder.pt

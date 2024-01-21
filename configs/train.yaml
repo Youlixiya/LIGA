@@ -1,0 +1,20 @@
+model:
+  model_type: liga
+  dino_model: facebook/dinov2-base
+  clip_model: openai/clip-vit-large-patch14
+  object_embedding_dim: 512
+  image_size: 1024
+  sam_path: checkpoints/sam/sam_vit_h_4b8939.pth
+  decoder_path: checkpoints/box_decoder.pt
+train:
+  data_root: dataset
+  dataset: refcocog
+  splitBy: umd
+  lr: 1e-3
+  optimizer: adam
+  batch_size: 8
+  epochs: 2
+  loss_fn: mse
+  steps: 100000
+  image_size: 1024
+  save_path: checkpoints/liga

@@ -1,0 +1,4 @@
+transformers==4.36.1
+opencv-python
+omegaconf
+scikit-image
