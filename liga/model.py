@@ -364,11 +364,12 @@ class LIGAModel(CLIPModel):
         # boxes_embeddings = None,
         ori_shapes = None,
         # return_dict = None,
-    ):
-        fusuion_encoder_outputs = self.fusion_encoder(vision_embeddings, text_embeddings, task_embeddings)
+    ):  
+        for encoder in self.fusion_encoder:
+            vision_embeddings, text_embeddings, task_embeddings = encoder(vision_embeddings, text_embeddings, task_embeddings)
 
-        last_hidden_state = fusuion_encoder_outputs
-        object_embeddings = self.object_projector(last_hidden_state[:, 0])
+        # last_hidden_state = fusuion_encoder_outputs
+        object_embeddings = self.object_projector(task_embeddings[:, 0])
         pred_boxes = self.box_decoder(object_embeddings)
         if boxes is not None:
             boxes = boxes.to(device=self.device, dtype=self.dtype)
