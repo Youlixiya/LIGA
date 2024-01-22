@@ -54,14 +54,18 @@ def collate_fn(
         sentence,
     ) in batch:
         
-        boxes.append(box)
+        
         image_shape = image.shape[:2]
         ori_shapes.append(image_shape)
-        scale_h = image_size/ image_shape[0]
-        scale_w = image_size/ image_shape[1]
-        box = box.copy().astype(np.float32)
-        box[[0, 2]] *= scale_w
-        box[[1, 3]] *= scale_h
+        # scale_h = image_size/ image_shape[0]
+        # scale_w = image_size/ image_shape[1]
+        box = box.astype(np.float32)
+        box[[0, 2]] /= image_shape[1]
+        box[[1, 3]] /= image_shape[0]
+        boxes.append(box)
+        # box = box.copy().astype(np.float32)
+        # box[[0, 2]] *= scale_w
+        # box[[1, 3]] *= scale_h
         with torch.no_grad():
             boxes_embeddings.append(prompt_encoder(points=None, boxes=torch.from_numpy(box[None]), masks=None)[0])
         
@@ -74,6 +78,6 @@ def collate_fn(
             'images': images,
             'texts': sentences,
             'boxes': torch.from_numpy(np.stack(boxes)),
-            'boxes_embeddings': torch.cat(boxes_embeddings),
+            # 'boxes_embeddings': torch.cat(boxes_embeddings),
             'ori_shapes': torch.LongTensor(ori_shapes)
             }

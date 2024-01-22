@@ -27,6 +27,10 @@ class LIGAOutput(ModelOutput):
     attentions: Optional[Tuple[torch.FloatTensor]] = None
     loss: torch.FloatTensor = None
     iou: torch.FloatTensor = None
+    giou: torch.FloatTensor = None
+    embedding_mse_loss: torch.FloatTensor = None
+    boxes_mse_loss: torch.FloatTensor = None
+    giou_loss: torch.FloatTensor = None
     object_embeddings: torch.FloatTensor = None
 
 # class CLIPPreTrainedModel(PreTrainedModel):
@@ -135,8 +139,40 @@ def calculate_iou(boxes1, boxes2):
     # 计算 IoU
     iou = intersection_area / union_area
 
-    return iou.mean(0)
+    return iou
 
+def calculate_giou(boxes1, boxes2):
+
+    # iou = calculate_iou(boxes1, boxes2)
+    
+    intersection_x1 = torch.max(boxes1[:, 0], boxes2[:, 0])
+    intersection_y1 = torch.max(boxes1[:, 1], boxes2[:, 1])
+    intersection_x2 = torch.min(boxes1[:, 2], boxes2[:, 2])
+    intersection_y2 = torch.min(boxes1[:, 3], boxes2[:, 3])
+
+    intersection_area = torch.clamp(intersection_x2 - intersection_x1 + 1, min=0) * torch.clamp(intersection_y2 - intersection_y1 + 1, min=0)
+
+    boxes1_area = (boxes1[:, 2] - boxes1[:, 0] + 1) * (boxes1[:, 3] - boxes1[:, 1] + 1)
+    boxes2_area = (boxes2[:, 2] - boxes2[:, 0] + 1) * (boxes2[:, 3] - boxes2[:, 1] + 1)
+
+    union_area = boxes1_area + boxes2_area - intersection_area
+
+    iou = intersection_area / union_area
+
+    # 计算最小包围框的面积
+    convex_hull_x1 = torch.min(boxes1[:, 0], boxes2[:, 0])
+    convex_hull_y1 = torch.min(boxes1[:, 1], boxes2[:, 1])
+    convex_hull_x2 = torch.max(boxes1[:, 2], boxes2[:, 2])
+    convex_hull_y2 = torch.max(boxes1[:, 3], boxes2[:, 3])
+    convex_hull_area = (convex_hull_x2 - convex_hull_x1 + 1) * (convex_hull_y2 - convex_hull_y1 + 1)
+
+    # 计算并集区域的面积
+    union_area = boxes1_area + boxes2_area - iou * (convex_hull_area - union_area)
+
+    # 计算 GIoU
+    giou = iou - (convex_hull_area - union_area) / convex_hull_area
+
+    return iou, giou
 
 
 # class LIGAEncoderLayer(nn.Module):
@@ -294,7 +330,7 @@ class LIGAModel(CLIPModel):
         output_attentions = None,
         output_hidden_states = None,
         boxes = None,
-        boxes_embeddings = None,
+        # boxes_embeddings = None,
         ori_shapes = None,
         return_dict = None,
     ):
@@ -329,7 +365,7 @@ class LIGAModel(CLIPModel):
             (input_shape[0], input_shape[1]), hidden_states.dtype, device=hidden_states.device
         )
         causal_attention_mask = torch.zeros((input_shape[0], 1, vision_embeddings_num+input_shape[1]+1, vision_embeddings_num+input_shape[1]+1), dtype=hidden_states.dtype, device=hidden_states.device)
-        # causal_attention_mask[:, :, :input_shape[1], :input_shape[1]] = causal_attention_mask_text
+        causal_attention_mask[:, :, :input_shape[1], :input_shape[1]] = causal_attention_mask_text
         # causal_attention_mask[:, :, :vision_embeddings_num, :vision_embeddings_num] = 1
         # expand attention_mask
         attention_mask = None
@@ -351,17 +387,31 @@ class LIGAModel(CLIPModel):
         last_hidden_state = self.text_model.final_layer_norm(last_hidden_state)
         object_embeddings = self.object_projector(last_hidden_state[:, -1])
         
-        if boxes_embeddings is not None:
-            loss = self.loss_fn(object_embeddings, boxes_embeddings.reshape(b, -1).to(device=self.device, dtype=self.dtype))
-        else:
-            loss = None
+        # if boxes_embeddings is not None:
+        #     loss = self.loss_fn(object_embeddings, boxes_embeddings.reshape(b, -1).to(device=self.device, dtype=self.dtype))
+        
+        # else:
+        #     loss = None
         if boxes is not None:
+            boxes = boxes.to(device=self.device, dtype=self.dtype)
+            boxes_embeddings = self.box_encoder(boxes)
+            embedding_mse_loss = self.loss_fn(object_embeddings, boxes_embeddings)
+            pred_boxes = self.box_decoder(object_embeddings)
+            boxes_mse_loss = self.loss_fn(pred_boxes, boxes)
+            iou, giou = calculate_giou(pred_boxes, boxes)
+            giou_loss = (1 - giou).mean(0)
+            iou = iou.mean(0)
+            giou = giou.mean(0)
             pred_boxes = self.boxes_decoder(object_embeddings.detach(), ori_shapes.to(self.device))
-            # print(pred_boxes)
-            # print(boxes)
-            iou = calculate_iou(pred_boxes, boxes)
+            loss = embedding_mse_loss + boxes_mse_loss + giou_loss
         else:
             iou = None
+            giou = None
+            embedding_mse_loss = None
+            boxes_mse_loss = None
+            giou_loss = None
+            
+            
         
         
 
@@ -390,8 +440,12 @@ class LIGAModel(CLIPModel):
 
         return LIGAOutput(
             last_hidden_state=last_hidden_state,
-            loss=loss,
             iou=iou,
+            giou=giou,
+            embedding_mse_loss=embedding_mse_loss,
+            boxes_mse_loss=boxes_mse_loss,
+            giou_loss=giou_loss,
+            loss=loss,
             object_embeddings=object_embeddings,
             hidden_states=encoder_outputs.hidden_states,
             attentions=encoder_outputs.attentions,
