@@ -13,7 +13,7 @@ train:
   lr: 1e-4
   optimizer: adam
   torch_dtype: float32
-  batch_size: 128
+  batch_size: 32
   epochs: 50
   loss_fn: mse
   steps: 100000

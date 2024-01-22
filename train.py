@@ -34,8 +34,8 @@ def main(args):
         p.requires_grad = False
     for p in liga_model.dino_model.parameters(): 
         p.requires_grad = False
-    for p in liga_model.box_decoder.parameters():
-        p.requires_grad = False
+    # for p in liga_model.box_decoder.parameters():
+    #     p.requires_grad = False
     for p in liga_model.visual_projection.parameters():
         p.requires_grad = False
     for p in liga_model.text_projection.parameters():
@@ -56,6 +56,8 @@ def main(args):
       optimizer= OPTIMIZER(list(liga_model.text_model.parameters()) + \
                            list(liga_model.object_projector.parameters()) +\
                            list(liga_model.dino_projector.parameters()) +\
+                           list(liga_model.box_encoder.parameters()) +\
+                           list(liga_model.box_decoder.parameters()) +\
                            [liga_model.object_embedding] +\
                            list(liga_model.clip_projector.parameters()),lr=train_args.lr),
       metrics_dict = {},

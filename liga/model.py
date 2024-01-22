@@ -14,12 +14,12 @@ from segment_anything import SamPredictor, sam_model_registry
 
 import torch
 from torch import nn
-# try:
-#     import flash_attn
-#     # use_flash_attn2 = True
-#     ATTENTION_MODULE=LIGAFlashAttention2
-# except:
-#     ATTENTION_MODULE=LIGASdpaAttention
+try:
+    import flash_attn
+    # use_flash_attn2 = True
+    ATTENTION_MODULE=LIGAFlashAttention2
+except:
+    ATTENTION_MODULE=LIGASdpaAttention
 @dataclass
 class LIGAOutput(ModelOutput):
     last_hidden_state: torch.FloatTensor = None
@@ -28,6 +28,7 @@ class LIGAOutput(ModelOutput):
     loss: torch.FloatTensor = None
     iou: torch.FloatTensor = None
     giou: torch.FloatTensor = None
+    boxes: torch.FloatTensor = None
     embedding_mse_loss: torch.FloatTensor = None
     boxes_mse_loss: torch.FloatTensor = None
     giou_loss: torch.FloatTensor = None
@@ -175,60 +176,60 @@ def calculate_giou(boxes1, boxes2):
     return iou, giou
 
 
-# class LIGAEncoderLayer(nn.Module):
-#     def __init__(self, config, layer_idx: int=None):
-#         super().__init__()
-#         self.hidden_size = config.hidden_size
+class LIGAEncoderLayer(nn.Module):
+    def __init__(self, config, layer_idx: int=None):
+        super().__init__()
+        self.hidden_size = config.hidden_size
 
-#         self.self_attn = ATTENTION_MODULE(config=config, layer_idx=layer_idx)
+        self.self_attn = ATTENTION_MODULE(config=config, layer_idx=layer_idx)
 
-#         self.mlp = LIGAMLP(config)
-#         self.input_layernorm = LIGARMSNorm(config.hidden_size, eps=config.rms_norm_eps)
-#         self.post_attention_layernorm = LIGARMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.mlp = LIGAMLP(config)
+        self.input_layernorm = LIGARMSNorm(config.hidden_size, eps=config.rms_norm_eps)
+        self.post_attention_layernorm = LIGARMSNorm(config.hidden_size, eps=config.rms_norm_eps)
 
-#     def forward(
-#         self,
-#         hidden_states: torch.Tensor,
-#         attention_mask: Optional[torch.Tensor] = None,
-#         position_ids: Optional[torch.LongTensor] = None,
-#         past_key_value: Optional[Tuple[torch.Tensor]] = None,
-#         output_attentions: Optional[bool] = False,
-#         use_cache: Optional[bool] = False,
-#         **kwargs,
-#     ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        attention_mask: Optional[torch.Tensor] = None,
+        position_ids: Optional[torch.LongTensor] = None,
+        past_key_value: Optional[Tuple[torch.Tensor]] = None,
+        output_attentions: Optional[bool] = False,
+        use_cache: Optional[bool] = False,
+        **kwargs,
+    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
         
 
-#         residual = hidden_states
+        residual = hidden_states
 
-#         hidden_states = self.input_layernorm(hidden_states)
+        hidden_states = self.input_layernorm(hidden_states)
 
-#         # Self Attention
-#         hidden_states, self_attn_weights, present_key_value = self.self_attn(
-#             hidden_states=hidden_states,
-#             attention_mask=attention_mask,
-#             position_ids=position_ids,
-#             past_key_value=past_key_value,
-#             output_attentions=output_attentions,
-#             use_cache=use_cache,
-#             **kwargs,
-#         )
-#         hidden_states = residual + hidden_states
+        # Self Attention
+        hidden_states, self_attn_weights, present_key_value = self.self_attn(
+            hidden_states=hidden_states,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_value=past_key_value,
+            output_attentions=output_attentions,
+            use_cache=use_cache,
+            **kwargs,
+        )
+        hidden_states = residual + hidden_states
 
-#         # Fully Connected
-#         residual = hidden_states
-#         hidden_states = self.post_attention_layernorm(hidden_states)
-#         hidden_states = self.mlp(hidden_states)
-#         hidden_states = residual + hidden_states
+        # Fully Connected
+        residual = hidden_states
+        hidden_states = self.post_attention_layernorm(hidden_states)
+        hidden_states = self.mlp(hidden_states)
+        hidden_states = residual + hidden_states
 
-#         outputs = (hidden_states,)
+        outputs = (hidden_states,)
         
-#         if output_attentions:
-#             outputs += (self_attn_weights,)
+        if output_attentions:
+            outputs += (self_attn_weights,)
 
-#         if use_cache:
-#             outputs += (present_key_value,)
+        if use_cache:
+            outputs += (present_key_value,)
 
-#         return outputs
+        return outputs
 
 class NextChatConfig(CLIPConfig):
     model_type = "liga"
@@ -238,6 +239,7 @@ class NextChatConfig(CLIPConfig):
     image_size = 1024
     sam_path = 'checkpoints/sam/sam_vit_h_4b8939.pth'
     decoder_path = 'checkpoints/decoder.pt'
+    fusion_encoder_layers = 4
 
 class LIGAModel(CLIPModel):
     
@@ -292,14 +294,14 @@ class LIGAModel(CLIPModel):
             nn.Linear(self.clip_vison_hidden_size, self.clip_text_hidden_size)
         )
         self.loss_fn = nn.MSELoss()
-        self.load_decoder()
+        # self.load_decoder()
         self.post_init()
     
     @property
     def dtype(self):
         return self.text_projection.weight.data.dtype
     
-    def forward(self, images, texts, boxes, boxes_embeddings, ori_shapes):
+    def forward(self, images, texts, boxes=None, ori_shapes=None):
         dino_input = self.dino_processor(images, return_tensors="pt").to(device=self.device, dtype=self.dtype)
         dino_embeddings = self.dino_model(**dino_input).feature_maps[-1]
         b, c = dino_embeddings.shape[:2]
@@ -317,7 +319,7 @@ class LIGAModel(CLIPModel):
         # print(vision_embeddings.shape)
         return self.forward_text_transformer(**clip_input,
                                              boxes=boxes,
-                                             boxes_embeddings=boxes_embeddings,
+                                            #  boxes_embeddings=boxes_embeddings,
                                              ori_shapes=ori_shapes,
                                              vision_embeddings=vision_embeddings)
     
@@ -392,11 +394,11 @@ class LIGAModel(CLIPModel):
         
         # else:
         #     loss = None
+        pred_boxes = self.box_decoder(object_embeddings)
         if boxes is not None:
             boxes = boxes.to(device=self.device, dtype=self.dtype)
             boxes_embeddings = self.box_encoder(boxes)
             embedding_mse_loss = self.loss_fn(object_embeddings, boxes_embeddings)
-            pred_boxes = self.box_decoder(object_embeddings)
             boxes_mse_loss = self.loss_fn(pred_boxes, boxes)
             iou, giou = calculate_giou(pred_boxes, boxes)
             giou_loss = (1 - giou).mean(0)
@@ -410,10 +412,11 @@ class LIGAModel(CLIPModel):
             embedding_mse_loss = None
             boxes_mse_loss = None
             giou_loss = None
-            
-            
+            loss = None
         
-        
+        if ori_shapes is not None:
+            pred_boxes[:, [0, 2]] *= ori_shapes[:, 1]
+            pred_boxes[:, [1, 3]] *= ori_shapes[:, 0]
 
         # if self.eos_token_id == 2:
         #     # The `eos_token_id` was incorrect before PR #24773: Let's keep what have been done here.
@@ -446,6 +449,7 @@ class LIGAModel(CLIPModel):
             boxes_mse_loss=boxes_mse_loss,
             giou_loss=giou_loss,
             loss=loss,
+            boxes=pred_boxes,
             object_embeddings=object_embeddings,
             hidden_states=encoder_outputs.hidden_states,
             attentions=encoder_outputs.attentions,
