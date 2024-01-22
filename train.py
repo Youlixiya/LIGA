@@ -32,6 +32,8 @@ def main(args):
     liga_model = LIGAModel.from_pretrained(model_args.clip_model, torch_dtype=torch_dtype, **model_args).cuda()
     for p in liga_model.vision_model.parameters():
         p.requires_grad = False
+    for p in liga_model.text_model.parameters():
+        p.requires_grad = False
     for p in liga_model.dino_model.parameters(): 
         p.requires_grad = False
     # for p in liga_model.box_decoder.parameters():
@@ -48,18 +50,19 @@ def main(args):
     val_dataset = RefCOCO(train_args.data_root, dataset=train_args.dataset, splitBy=train_args.splitBy, split='val')
     val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, collate_fn=partial(collate_fn, prompt_encoder=prompt_encoder))
     # for name, parameter in liga_model.clip_projector.named_parameters():
-    print(liga_model.object_embedding.requires_grad, liga_model.object_embedding.is_leaf)
+    # print(liga_model.object_embedding.requires_grad, liga_model.object_embedding.is_leaf)
 
     accelerator = Accelerator(kwargs_handlers=[DistributedDataParallelKwargs(find_unused_parameters=True)])
     model = torchkeras.KerasModel(liga_model,
       loss_fn = loss_fn,
-      optimizer= OPTIMIZER(list(liga_model.text_model.parameters()) + \
+      optimizer= OPTIMIZER(list(liga_model.fusion_encoder.parameters()) + \
                            list(liga_model.object_projector.parameters()) +\
                            list(liga_model.dino_projector.parameters()) +\
+                           list(liga_model.clip_vision_projector.parameters()) +\
+                           list(liga_model.clip_text_projector.parameters()) +\
                            list(liga_model.box_encoder.parameters()) +\
                            list(liga_model.box_decoder.parameters()) +\
-                           [liga_model.object_embedding] +\
-                           list(liga_model.clip_projector.parameters()),lr=train_args.lr),
+                           [liga_model.object_embedding],lr=train_args.lr),
       metrics_dict = {},
     )
     dfhistory=model.fit(

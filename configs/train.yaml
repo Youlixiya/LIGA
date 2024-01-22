@@ -2,10 +2,29 @@ model:
   model_type: liga
   dino_model: facebook/dinov2-base
   clip_model: openai/clip-vit-large-patch14
-  object_embedding_dim: 512
+  object_embedding_dim: 256
   image_size: 1024
   sam_path: checkpoints/sam/sam_vit_h_4b8939.pth
   decoder_path: checkpoints/box_decoder.pt
+  hidden_size: 512
+  intermediate_size: 2048
+  num_hidden_layers: 4
+  num_attention_heads: 8
+  # num_key_value_heads: 2
+  hidden_act: "silu"
+  max_position_embeddings: 2048
+  # initializer_range=0.02,
+  rms_norm_eps: 1e-6
+  # use_cache: False
+  # pad_token_id=None,
+  # bos_token_id=1,
+  # eos_token_id=2,
+  # pretraining_tp=1,
+  # tie_word_embeddings=False,
+  # rope_theta: 10000.0
+  # rope_scaling: null
+  attention_bias: False
+  attention_dropout: 0.0
 train:
   data_root: dataset/refer_seg
   dataset: refcocog
