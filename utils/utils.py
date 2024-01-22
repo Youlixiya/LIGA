@@ -19,8 +19,12 @@ class StepRunner:
         #loss
         preds = self.net(**batch)
         # preds_log_softmax = F.log_softmax(preds, dim=-1)
+        embedding_mse_loss = preds.embedding_mse_loss
+        boxes_mse_loss = preds.boxes_mse_loss
+        giou_loss = preds.giou_loss
         loss = preds.loss
         iou = preds.iou
+        giou = preds.giou
             
 
         #backward()
@@ -31,15 +35,22 @@ class StepRunner:
                 self.lr_scheduler.step()
             self.optimizer.zero_grad()
             
-            
-        all_loss = self.accelerator.gather(loss).sum()
+        all_embedding_mse_loss = self.accelerator.gather(embedding_mse_loss).mean()
+        all_boxes_mse_loss = self.accelerator.gather(boxes_mse_loss).mean()
+        all_giou_loss = self.accelerator.gather(giou_loss).mean()
+        all_loss = self.accelerator.gather(loss).mean()
         all_iou = self.accelerator.gather(iou).mean()
+        all_giou = self.accelerator.gather(giou).mean()
         
         #losses （or plain metric that can be averaged）
-        step_losses = {self.stage+"_loss":all_loss.item()}
+        step_losses = {self.stage+"_embedding_mse_loss":all_embedding_mse_loss.item(),
+                       self.stage+"_boxes_mse_loss":all_boxes_mse_loss.item(),
+                       self.stage+"_giou_loss":all_giou_loss.item(),
+                       self.stage+"_loss":all_loss.item()}
         
         #metrics (stateful metric)
-        step_metrics = {self.stage+'_iou':all_iou.item()}
+        step_metrics = {self.stage+'_iou':all_iou.item(),
+                        self.stage+'_giou':all_giou.item()}
         if self.stage=="train":
             if self.optimizer is not None:
                 step_metrics['lr'] = self.optimizer.state_dict()['param_groups'][0]['lr']
