@@ -210,7 +210,7 @@ class LIGAEncoderLayer(nn.Module):
         # output_attentions: Optional[bool] = False,
         # use_cache: Optional[bool] = False,
         # **kwargs,
-    ) -> Tuple[torch.FloatTensor, Optional[Tuple[torch.FloatTensor, torch.FloatTensor]]]:
+    ) -> torch.FloatTensor:
         
 
         hidden_states = torch.cat([vision_hidden_states, text_hidden_states, task_hidden_states], dim=1)
@@ -221,7 +221,6 @@ class LIGAEncoderLayer(nn.Module):
         text_len = text_hidden_states.shape[1]
         task_len = task_hidden_states.shape[1]
 
-        # Self Attention
         hidden_states = self.self_attn(
             vision_hidden_states=hidden_states[:, :vision_len, :],
             text_hidden_states=hidden_states[:, vision_len: vision_len+text_len, :],
@@ -254,28 +253,25 @@ class NextChatConfig(CLIPConfig):
     sam_path = 'checkpoints/sam/sam_vit_h_4b8939.pth'
     decoder_path = 'checkpoints/decoder.pt'
     fusion_encoder_layers = 4
+    hidden_size = 512
+    intermediate_size = 2048
+    num_hidden_layers = 4
 
 class LIGAModel(CLIPModel):
     
-    config_class = NextChatConfig
+    # config_class = NextChatConfig
     
     def __init__(self, config, **kwargs):
-        super().__init__(config, **kwargs)
+        
+        # if not hasattr(config, 'dino_model'):
+        super().__init__(config)
+        for key, value in kwargs.items():
+            setattr(config, key, value)
         self.config = config
-        if not hasattr(config, 'dino_model'):
-            for key, value in kwargs.items():
-                setattr(self.config, key, value)
-            # self.config.dino_model = kwargs['dino_model']
-            # self.config.clip_model = kwargs['clip_model']
-            # self.config.object_embedding_dim = kwargs['object_embedding_dim']
-            # self.config.clip_model = kwargs['clip_model']
-            # self.config.image_size = kwargs['image_size']
-            # self.config.sam_path = kwargs['sam_path']
-            # self.config.decoder_path = kwargs['decoder_path']
         self.clip_vison_hidden_size = config.vision_config.hidden_size
         self.clip_text_hidden_size = config.text_config.hidden_size
         self.hidden_size = self.config.hidden_size
-        self.object_embedding = nn.Parameter(torch.randn(1, self.clip_text_hidden_size).requires_grad_(True))
+        self.object_embedding = nn.Parameter(torch.randn(1, self.hidden_size).requires_grad_(True))
         self.clip_processor = CLIPProcessor.from_pretrained(self.config.clip_model)
         # self.clip_model = CLIPModel.from_pretrained(config.clip_model)
         self.dino_processor = AutoImageProcessor.from_pretrained(self.config.dino_model)
@@ -284,7 +280,7 @@ class LIGAModel(CLIPModel):
         #     [LIGAEncoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
         # )
         self.fusion_encoder = nn.Sequential(
-            [LIGAEncoderLayer(config) for layer_idx in range(self.config.num_hidden_layers)]
+            *[LIGAEncoderLayer(self.config) for _ in range(self.config.num_hidden_layers)]
         )
         self.object_projector = nn.Sequential(
             nn.Linear(self.hidden_size, self.hidden_size),
@@ -319,8 +315,10 @@ class LIGAModel(CLIPModel):
             nn.Linear(self.clip_text_hidden_size, self.hidden_size)
         )
         self.loss_fn = nn.MSELoss()
-        # self.load_decoder()
         self.post_init()
+        # self.load_decoder()
+        
+        
     
     @property
     def dtype(self):
@@ -344,7 +342,9 @@ class LIGAModel(CLIPModel):
         
         vision_embeddings = torch.cat([clip_vision_embeddings, dino_embeddings], dim=1)
         task_embeddings = self.object_embedding[None].repeat(b, 1, 1)
-        
+        print(vision_embeddings.shape)
+        print(clip_text_embeddings.shape)
+        print(task_embeddings.shape)
         return self.forward_fusuion_encoder(vision_embeddings, clip_text_embeddings, task_embeddings, boxes, ori_shapes)
         
         
@@ -357,9 +357,9 @@ class LIGAModel(CLIPModel):
     
     def forward_fusuion_encoder(
         self,
-        vision_embeddings = None,
-        text_embeddings = None,
-        task_embeddings = None,
+        vision_embeddings,
+        text_embeddings,
+        task_embeddings,
         # attention_mask = None,
         boxes = None,
         # boxes_embeddings = None,
@@ -370,12 +370,6 @@ class LIGAModel(CLIPModel):
 
         last_hidden_state = fusuion_encoder_outputs
         object_embeddings = self.object_projector(last_hidden_state[:, 0])
-        
-        # if boxes_embeddings is not None:
-        #     loss = self.loss_fn(object_embeddings, boxes_embeddings.reshape(b, -1).to(device=self.device, dtype=self.dtype))
-        
-        # else:
-        #     loss = None
         pred_boxes = self.box_decoder(object_embeddings)
         if boxes is not None:
             boxes = boxes.to(device=self.device, dtype=self.dtype)

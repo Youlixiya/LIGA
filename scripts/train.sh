@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=2,3,4,5 accelerate launch --num_processes 4 train.py
