@@ -117,10 +117,9 @@ class LIGAAttention(nn.Module):
         else:
             attn_out = self.attn_fun(q1, k1, v1)
         
-        
-        return self.o_proj(attn_out.reshape(bsz, total_len, self.hidden_size))
-
-        return attn_output, attn_weights, past_key_value
+        hidden_states = self.o_proj(attn_out.reshape(bsz, total_len, self.hidden_size))
+        # return hidden_states[:, :vision_len, :], hidden_states[:, vision_len:vision_len+text_len, :], hidden_states[:, vision_len+text_len:, :]
+        return hidden_states
     
     def attn_fun(self, q, k, v):
         b, q_l, n, d = q.shape
@@ -242,7 +241,7 @@ class LIGAEncoderLayer(nn.Module):
         # if use_cache:
         #     outputs += (present_key_value,)
 
-        return hidden_states
+        return hidden_states[:, :vision_len, :], hidden_states[:, vision_len:vision_len+text_len, :], hidden_states[:, vision_len+text_len:, :]
 
 class NextChatConfig(CLIPConfig):
     model_type = "liga"
@@ -279,8 +278,8 @@ class LIGAModel(CLIPModel):
         # self.encoder_layers = nn.ModuleList(
         #     [LIGAEncoderLayer(config, layer_idx) for layer_idx in range(config.num_hidden_layers)]
         # )
-        self.fusion_encoder = nn.Sequential(
-            *[LIGAEncoderLayer(self.config) for _ in range(self.config.num_hidden_layers)]
+        self.fusion_encoder = nn.ModuleList(
+            [LIGAEncoderLayer(self.config) for _ in range(self.config.num_hidden_layers)]
         )
         self.object_projector = nn.Sequential(
             nn.Linear(self.hidden_size, self.hidden_size),
