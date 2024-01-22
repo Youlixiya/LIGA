@@ -7,14 +7,15 @@ model:
   sam_path: checkpoints/sam/sam_vit_h_4b8939.pth
   decoder_path: checkpoints/box_decoder.pt
 train:
-  data_root: dataset
+  data_root: dataset/refer_seg
   dataset: refcocog
   splitBy: umd
-  lr: 1e-3
+  lr: 1e-4
   optimizer: adam
-  batch_size: 8
-  epochs: 2
+  torch_dtype: float32
+  batch_size: 128
+  epochs: 50
   loss_fn: mse
   steps: 100000
   image_size: 1024
-  save_path: checkpoints/liga
+  save_path: checkpoints/liga.pt

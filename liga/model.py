@@ -220,7 +220,7 @@ class LIGAModel(CLIPModel):
             self.config.decoder_path = kwargs['decoder_path']
         self.clip_vison_hidden_size = config.vision_config.hidden_size
         self.clip_text_hidden_size = config.text_config.hidden_size
-        self.object_embedding = nn.Parameter(torch.randn(1, self.clip_text_hidden_size))
+        self.object_embedding = nn.Parameter(torch.randn(1, self.clip_text_hidden_size).requires_grad_(True))
         self.clip_processor = CLIPProcessor.from_pretrained(self.config.clip_model)
         # self.clip_model = CLIPModel.from_pretrained(config.clip_model)
         self.dino_processor = AutoImageProcessor.from_pretrained(self.config.dino_model)
@@ -232,6 +232,12 @@ class LIGAModel(CLIPModel):
             nn.Linear(self.clip_text_hidden_size, self.clip_text_hidden_size),
             nn.SiLU(inplace=True),
             nn.Linear(self.clip_text_hidden_size, self.config.object_embedding_dim)
+        )
+        self.box_encoder = nn.Sequential(
+            nn.Linear(4, self.config.object_embedding_dim),
+            nn.SiLU(inplace=True),
+            nn.Linear(self.config.object_embedding_dim, self.config.object_embedding_dim),
+            # nn.Sigmoid()
         )
         self.box_decoder = nn.Sequential(
             nn.Linear(self.config.object_embedding_dim, self.config.object_embedding_dim),
@@ -323,7 +329,7 @@ class LIGAModel(CLIPModel):
             (input_shape[0], input_shape[1]), hidden_states.dtype, device=hidden_states.device
         )
         causal_attention_mask = torch.zeros((input_shape[0], 1, vision_embeddings_num+input_shape[1]+1, vision_embeddings_num+input_shape[1]+1), dtype=hidden_states.dtype, device=hidden_states.device)
-        causal_attention_mask[:, :, :input_shape[1], :input_shape[1]] = causal_attention_mask_text
+        # causal_attention_mask[:, :, :input_shape[1], :input_shape[1]] = causal_attention_mask_text
         # causal_attention_mask[:, :, :vision_embeddings_num, :vision_embeddings_num] = 1
         # expand attention_mask
         attention_mask = None
@@ -346,11 +352,11 @@ class LIGAModel(CLIPModel):
         object_embeddings = self.object_projector(last_hidden_state[:, -1])
         
         if boxes_embeddings is not None:
-            loss = self.loss_fn(object_embeddings, boxes_embeddings.reshape(b, -1))
+            loss = self.loss_fn(object_embeddings, boxes_embeddings.reshape(b, -1).to(device=self.device, dtype=self.dtype))
         else:
             loss = None
         if boxes is not None:
-            pred_boxes = self.boxes_decoder(object_embeddings, ori_shapes.to(self.device))
+            pred_boxes = self.boxes_decoder(object_embeddings.detach(), ori_shapes.to(self.device))
             # print(pred_boxes)
             # print(boxes)
             iou = calculate_iou(pred_boxes, boxes)
@@ -390,7 +396,7 @@ class LIGAModel(CLIPModel):
             hidden_states=encoder_outputs.hidden_states,
             attentions=encoder_outputs.attentions,
         )
-    @torch.no_grad()
+    # @torch.no_grad()
     def boxes_decoder(self, boxes_embedding, ori_shapes):
         boxes = self.box_decoder(boxes_embedding.reshape(-1, self.config.object_embedding_dim))
         boxes[:, [0, 2]] *= ori_shapes[:, 1]

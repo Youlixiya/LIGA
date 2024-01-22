@@ -213,7 +213,9 @@ class REFER:
     
     def getRefImage(self, ref_ids=[]):
         image = self.Imgs[self.getImgIds(ref_ids)[0]]
+        # print(image)
         I = io.imread(osp.join(self.IMAGE_DIR, image['file_name']))
+        return I
 
     def getCatIds(self):
         return self.Cats.keys()

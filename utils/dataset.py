@@ -62,8 +62,8 @@ def collate_fn(
         box = box.copy().astype(np.float32)
         box[[0, 2]] *= scale_w
         box[[1, 3]] *= scale_h
-        
-        boxes_embeddings.append(prompt_encoder(points=None, boxes=torch.fromarray(box[None]), masks=None)[0])
+        with torch.no_grad():
+            boxes_embeddings.append(prompt_encoder(points=None, boxes=torch.from_numpy(box[None]), masks=None)[0])
         
         images.append(Image.fromarray(image))
         sentences.append(sentence)
@@ -73,7 +73,7 @@ def collate_fn(
         return {
             'images': images,
             'texts': sentences,
-            'boxes': torch.fromarray(np.stack(boxes)),
+            'boxes': torch.from_numpy(np.stack(boxes)),
             'boxes_embeddings': torch.cat(boxes_embeddings),
             'ori_shapes': torch.LongTensor(ori_shapes)
             }

@@ -12,6 +12,7 @@ from PIL import Image
 from tqdm import tqdm
 from utils.utils import StepRunner
 from utils.dataset import RefCOCO, collate_fn
+from accelerate import Accelerator, DistributedDataParallelKwargs
 torchkeras.KerasModel.StepRunner = StepRunner
 
 CONFIG_PATH = 'configs/train.yaml'
@@ -27,36 +28,50 @@ def main(args):
     del sam.image_encoder
     del sam.mask_decoder
     prompt_encoder = sam.prompt_encoder
-    liga_model = LIGAModel.from_pretrained(model_args.clip_model, torch_dtype=torch.float16, **model_args).cuda()
+    torch_dtype = torch.float16 if train_args.torch_dtype == 'half' else torch.float32
+    liga_model = LIGAModel.from_pretrained(model_args.clip_model, torch_dtype=torch_dtype, **model_args).cuda()
     for p in liga_model.vision_model.parameters():
         p.requires_grad = False
     for p in liga_model.dino_model.parameters(): 
         p.requires_grad = False
     for p in liga_model.box_decoder.parameters():
         p.requires_grad = False
+    for p in liga_model.visual_projection.parameters():
+        p.requires_grad = False
+    for p in liga_model.text_projection.parameters():
+        p.requires_grad = False
     loss_fn = nn.MSELoss() if train_args.loss_fn == 'mse' else nn.L1Loss()
     OPTIMIZER = torch.optim.Adam if train_args.optimizer == 'adam' else torch.optim.SGD
     # optimizer = OPTIMIZER(box_decoder.parameters(), lr=train_args.lr)
     train_dataset = RefCOCO(train_args.data_root, dataset=train_args.dataset, splitBy=train_args.splitBy, split='train')
-    train_dataloader = DataLoader(train_dataset, batch_size=train_args.batch_size, shuffle=True, collate_fn=partial(collate_fn, prompt_encoder))
+    train_dataloader = DataLoader(train_dataset, batch_size=train_args.batch_size, shuffle=True, collate_fn=partial(collate_fn, prompt_encoder=prompt_encoder))
     val_dataset = RefCOCO(train_args.data_root, dataset=train_args.dataset, splitBy=train_args.splitBy, split='val')
-    val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, collate_fn=partial(collate_fn, prompt_encoder))
+    val_dataloader = DataLoader(val_dataset, batch_size=1, shuffle=False, collate_fn=partial(collate_fn, prompt_encoder=prompt_encoder))
+    # for name, parameter in liga_model.clip_projector.named_parameters():
+    print(liga_model.object_embedding.requires_grad, liga_model.object_embedding.is_leaf)
+
+    accelerator = Accelerator(kwargs_handlers=[DistributedDataParallelKwargs(find_unused_parameters=True)])
     model = torchkeras.KerasModel(liga_model,
       loss_fn = loss_fn,
-      optimizer= OPTIMIZER([liga_model.text_model.parameters(),
-                            liga_model.object_projector.parameters(),
-                            liga_model.dino_projector.parameters(),
-                            liga_model.clip_projector.parameters()],lr=train_args.lf),
+      optimizer= OPTIMIZER(list(liga_model.text_model.parameters()) + \
+                           list(liga_model.object_projector.parameters()) +\
+                           list(liga_model.dino_projector.parameters()) +\
+                           [liga_model.object_embedding] +\
+                           list(liga_model.clip_projector.parameters()),lr=train_args.lr),
       metrics_dict = {},
     )
-    dfhistory=model.fit(train_data=train_dataloader, 
+    dfhistory=model.fit(
+                    # num_processes=4,
+                    train_data=train_dataloader, 
                     val_data=val_dataloader, 
                     epochs=train_args.epochs, 
-                    patience=3, 
+                    patience=5, 
                     ckpt_path=train_args.save_path,
-                    monitor="iou",
+                    # mixed_precision='fp16',
+                    monitor="val_iou",
                     mode="max",
-                    plot=False
+                    plot=True,
+                    accelerator=accelerator
                    )
     # image = Image.open('../TinyLLava/images/bee.png').convert('RGB')
     # images = [image, image]
@@ -78,8 +93,8 @@ def main(args):
     # print(input)
     # print(liga_model(**input))
     
-    os.makedirs(train_args.save_path, exist_ok=True)
-    liga_model.save_pretrained(train_args.save_path)
+    # os.makedirs(train_args.save_path, exist_ok=True)
+    # liga_model.save_pretrained(train_args.save_path)
     # print(LIGAModel.from_pretrained(train_args.save_path, torch_dtype=torch.float16))
     # model_args = args.model
     # train_args = args.train
