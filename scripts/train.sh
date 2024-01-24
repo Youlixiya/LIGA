@@ -1,1 +1,1 @@
-CUDA_VISIBLE_DEVICES=2,3,4,5 accelerate launch --num_processes 4 train.py
+CUDA_VISIBLE_DEVICES=2,3,4,5 accelerate launch --main_process_port 29000 --num_processes 1 --mixed_precision 'no' train.py

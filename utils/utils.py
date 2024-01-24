@@ -22,6 +22,7 @@ class StepRunner:
         embedding_mse_loss = preds.embedding_mse_loss
         boxes_mse_loss = preds.boxes_mse_loss
         giou_loss = preds.giou_loss
+        reconstruction_loss = preds.reconstruction_loss
         loss = preds.loss
         iou = preds.iou
         giou = preds.giou
@@ -38,6 +39,7 @@ class StepRunner:
         all_embedding_mse_loss = self.accelerator.gather(embedding_mse_loss).mean()
         all_boxes_mse_loss = self.accelerator.gather(boxes_mse_loss).mean()
         all_giou_loss = self.accelerator.gather(giou_loss).mean()
+        all_reconstruction_loss = self.accelerator.gather(reconstruction_loss).mean()
         all_loss = self.accelerator.gather(loss).mean()
         all_iou = self.accelerator.gather(iou).mean()
         all_giou = self.accelerator.gather(giou).mean()
@@ -46,6 +48,7 @@ class StepRunner:
         step_losses = {self.stage+"_embedding_mse_loss":all_embedding_mse_loss.item(),
                        self.stage+"_boxes_mse_loss":all_boxes_mse_loss.item(),
                        self.stage+"_giou_loss":all_giou_loss.item(),
+                       self.stage+"_all_reconstruction_loss":all_reconstruction_loss.item(),
                        self.stage+"_loss":all_loss.item()}
         
         #metrics (stateful metric)

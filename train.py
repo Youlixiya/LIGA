@@ -52,7 +52,7 @@ def main(args):
     # for name, parameter in liga_model.clip_projector.named_parameters():
     # print(liga_model.object_embedding.requires_grad, liga_model.object_embedding.is_leaf)
 
-    accelerator = Accelerator(kwargs_handlers=[DistributedDataParallelKwargs(find_unused_parameters=True)])
+    accelerator = Accelerator(mixed_precision=train_args.mixed_precision, kwargs_handlers=[DistributedDataParallelKwargs(find_unused_parameters=True)])
     model = torchkeras.KerasModel(liga_model,
       loss_fn = loss_fn,
       optimizer= OPTIMIZER(list(liga_model.fusion_encoder.parameters()) + \

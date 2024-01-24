@@ -31,6 +31,7 @@ train:
   splitBy: umd
   lr: 1e-4
   optimizer: adam
+  mixed_precision: 'no'
   torch_dtype: float32
   batch_size: 32
   epochs: 50
